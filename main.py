@@ -42,7 +42,8 @@ def init_db():
                 type TEXT,
                 v TEXT,
                 r TEXT,
-                s TEXT
+                s TEXT,
+                date_added TEXT
             )
         """)
         conn.commit()
@@ -83,8 +84,8 @@ def add_transaction_to_db(transaction_data):
     conn = get_db_connection()
     conn.execute(
         """
-        INSERT INTO transactions (hash, from_address, to_address, value, gas, gasPrice, nonce, input, type, v, r, s) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (hash, from_address, to_address, value, gas, gasPrice, nonce, input, type, v, r, s, date_added) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             transaction_data["hash"], 
@@ -99,6 +100,7 @@ def add_transaction_to_db(transaction_data):
             transaction_data.get("v"),
             transaction_data.get("r"),
             transaction_data.get("s"),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
     )
     conn.commit()
@@ -200,7 +202,7 @@ def display_transactions():
         df_transactions = pd.DataFrame(transactions)
         df_transactions.columns = [
             "Transaction ID", "Transaction Hash", "From Address", "To Address", 
-            "Value (ETH)", "Gas", "Gas Price", "Nonce", "Input", "Type", "V", "R", "S"
+            "Value (ETH)", "Gas", "Gas Price", "Nonce", "Input", "Type", "V", "R", "S", "Date Added"
         ]
         st.write(df_transactions)
     else:
