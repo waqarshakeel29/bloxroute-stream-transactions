@@ -251,4 +251,4 @@ if monitored_addresses:
 else:
     st.write("No wallet addresses are currently being monitored.")
 
-count = st_autorefresh(interval=5000)
+count = st_autorefresh(interval=3000)
