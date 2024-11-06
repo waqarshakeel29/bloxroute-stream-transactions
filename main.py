@@ -11,7 +11,6 @@ import re
 import dotenv
 from streamlit_autorefresh import st_autorefresh
 
-
 # Load environment variables
 dotenv.load_dotenv()
 
@@ -116,63 +115,71 @@ def fetch_transactions():
 # Initialize the database on first run
 init_db()
 
-# Bloxroute configuration
-BLOXROUTE_WS_URL = os.getenv("BLOXROUTE_WS_URL")  # Replace with actual bloxroute URL in .env file
-BLOXROUTE_API_KEY = os.getenv("BLOXROUTE_API_KEY")  # Replace with your API key in .env file
+ALCHEMY_WS_URL = os.getenv("ALCHEMY_WS_URL")
 
 # Validate Ethereum address format
 def is_valid_eth_address(address):
     return re.match(r"^0x[a-fA-F0-9]{40}$", address) is not None
 
-# WebSocket and Transaction Monitoring with Bloxroute
-async def listen_for_transactions(stop_event):
-    addresses = [addr["address"] for addr in fetch_monitored_addresses()]
-    if not addresses:
-        print("No addresses to monitor.")
-        return
+# WebSocket and Transaction Monitoring with Alchemy
+async def subscribe_to_mined_transactions(stop_event):
 
-    filter_expression = (
-        f"({{to}} IN {addresses}) OR ({{from}} IN {addresses})"
-    )
-
-    async with websockets.connect(
-        BLOXROUTE_WS_URL,
-        extra_headers={"Authorization": BLOXROUTE_API_KEY},
-    ) as websocket:
-        await websocket.send(
-            json.dumps({
-                "id": 1,
-                "method": "subscribe",
+    async with websockets.connect(ALCHEMY_WS_URL) as websocket:
+        try:
+            # Send subscription request
+            addresses = [addr["address"] for addr in fetch_monitored_addresses()]
+            address_filters = [{"from": addr} for addr in addresses] + [{"to": addr} for addr in addresses]
+            request = {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "eth_subscribe",
                 "params": [
-                    "newTxs", 
+                    "alchemy_minedTransactions",
                     {
-                        "include": ["tx_hash", "tx_contents"],
-                        "filters": filter_expression
-                    }
-                ]
-            })
-        )
+                        "addresses": address_filters,
+                        "includeRemoved": False,
+                        "hashesOnly": False,
+                    },
+                ],
+            }
 
-        while not stop_event.is_set():
-            try:
-                message = await websocket.recv()
-                transaction = json.loads(message)
-                print(transaction)
-                if transaction.get("params") and transaction["params"].get("result"):
-                    process_transaction(transaction["params"]["result"]['txContents'])
-            except Exception as e:
-                print(f"Error in WebSocket loop: {e}")
-                break
+            await websocket.send(json.dumps(request))
+            response = await websocket.recv()
+            print("Subscribed with response:", response)
 
-# Process and add transaction to database
-def process_transaction(tx):
-    monitored_addresses = [addr for addr, _ in fetch_monitored_addresses()]
-    if tx["to"] in monitored_addresses or tx["from"] in monitored_addresses:
-        add_transaction_to_db(tx)
+            # Listen for events
+            while not stop_event.is_set():
+                try:
+                    message = await websocket.recv()
+                    transaction = json.loads(message).get("params", {}).get("result", {}).get("transaction", {})
+                    print(transaction)
+                    if transaction:
+                        # Process transaction details and add to the database
+                        add_transaction_to_db({
+                            "hash": transaction["hash"],
+                            "from": transaction.get("from"),
+                            "to": transaction.get("to"),
+                            "value": transaction.get("value"),
+                            "gas": transaction.get("gas"),
+                            "gasPrice": transaction.get("gasPrice"),
+                            "nonce": transaction.get("nonce"),
+                            "input": transaction.get("input"),
+                            "type": transaction.get("type"),
+                            "v": transaction.get("v"),
+                            "r": transaction.get("r"),
+                            "s": transaction.get("s")
+                        })
+                        print("Added mined transaction:", transaction["hash"])
+                except websockets.exceptions.ConnectionClosed as e:
+                    print(f"Connection closed: {e}")
+                    break
+
+        except Exception as e:
+            print(f"Subscription error: {str(e)}")
 
 # Start monitoring function that runs in the background
 def start_monitoring(stop_event):
-    asyncio.run(listen_for_transactions(stop_event))
+    asyncio.run(subscribe_to_mined_transactions(stop_event))
 
 # Function to start or stop the WebSocket monitoring in a separate thread
 def toggle_monitoring():
@@ -218,10 +225,6 @@ if "is_monitoring" not in st.session_state:
 if st.button("Stop Monitoring" if st.session_state["is_monitoring"] else "Start Monitoring"):
     toggle_monitoring()
 
-# Create "Refresh Transactions" button
-# if st.button("Refresh Transactions"):
-#     display_transactions()
-# else:
 display_transactions()
 
 # Wallet Management Section
@@ -241,7 +244,6 @@ if monitored_addresses:
     st.subheader("Monitored Wallet Addresses")
     df_wallets = pd.DataFrame(monitored_addresses, columns=["Wallet Address", "Added Time"])
 
-    # Adding a delete button for each wallet address
     for i, row in df_wallets.iterrows():
         col1, col2, col3 = st.columns([3, 3, 1])
         col1.write(row["Wallet Address"])
@@ -249,7 +251,7 @@ if monitored_addresses:
         if col3.button("Delete", key=row["Wallet Address"]):
             delete_wallet_from_db(row["Wallet Address"])
             st.success(f"Wallet Address '{row['Wallet Address']}' has been removed.")
-            st.rerun()  # Refresh the UI after deletion
+            st.rerun()
 else:
     st.write("No wallet addresses are currently being monitored.")
 

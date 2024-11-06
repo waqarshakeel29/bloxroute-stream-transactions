@@ -4,3 +4,4 @@ websockets
 pandas
 python-dotenv
 streamlit-autorefresh
+web3
