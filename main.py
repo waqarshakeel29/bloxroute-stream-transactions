@@ -136,7 +136,7 @@ async def subscribe_to_mined_transactions(stop_event):
                 "params": [
                     "alchemy_minedTransactions",
                     {
-                        "addresses": address_filters,
+                        # "addresses": address_filters,
                         "includeRemoved": False,
                         "hashesOnly": False,
                     },
